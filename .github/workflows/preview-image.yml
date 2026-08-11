@@ -1,12 +1,14 @@
-name: Preview Image
+name: Branch Preview Images
 
-# Ad-hoc preview build combining feat/host-terminal + feat/snippets (already merged
-# into feat/snippets) — pushed to GHCR under this fork so it can be pulled for review.
+# Builds and pushes ghcr.io images tagged with the source branch name on every push.
+# Sanitizes branch names (e.g. feat/foo -> feat-foo) since / is invalid in a tag.
 
 on:
   push:
     branches:
-      - feat/snippets
+      - "**"
+    tags-ignore:
+      - "**"
   workflow_dispatch: {}
 
 permissions:
@@ -16,9 +18,20 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: arcane
+            dockerfile: docker/Dockerfile
+          - image: arcane-headless
+            dockerfile: docker/Dockerfile-agent
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set branch tag
+        id: tag
+        run: echo "tag=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -34,8 +47,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/arcane:preview-snippets-terminal
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}
           build-args: |
-            VERSION=preview-snippets-terminal
+            VERSION=${{ steps.tag.outputs.tag }}
