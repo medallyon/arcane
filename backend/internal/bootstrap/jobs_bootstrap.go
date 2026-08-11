@@ -68,6 +68,7 @@ type registerJobsParams struct {
 
 	Activity    *services.ActivityService
 	GitOpsSync  *services.GitOpsSyncService
+	Snippet     *services.SnippetService
 	Environment *services.EnvironmentService
 	JobSchedule *services.JobService
 	Settings    *services.SettingsService
@@ -142,6 +143,7 @@ func registerJobs(params registerJobsParams) error {
 		Config:      params.Config,
 		Scheduler:   params.Scheduler,
 		GitOpsSync:  params.GitOpsSync,
+		Snippet:     params.Snippet,
 		Environment: params.Environment,
 		JobSchedule: params.JobSchedule,
 		Admission:   params.Admission,
@@ -174,6 +176,7 @@ type dynamicJobsParams struct {
 	Config      *config.Config
 	Scheduler   schedulertypes.JobScheduler
 	GitOpsSync  *services.GitOpsSyncService
+	Snippet     *services.SnippetService
 	Environment *services.EnvironmentService
 	JobSchedule *services.JobService
 	Admission   *actors.Gate[actors.AdmissionKey]
@@ -189,6 +192,16 @@ func registerDynamicJobs(params dynamicJobsParams) error {
 			return err
 		}
 		params.GitOpsSync.RegisterAutoSyncJobsOnStartup(params.AppCtx)
+	}
+
+	// Snippets: one job per schedule-enabled snippet. Unconditional (not gated
+	// on !AgentMode) — a snippet is defined on and executed by the environment
+	// that owns it, so an agent must schedule its own snippet rows on its own
+	// scheduler too, which is also correct when the tunnel to the manager is
+	// down.
+	if params.Snippet != nil {
+		params.Snippet.SetScheduler(params.AppCtx, params.Scheduler)
+		params.Snippet.RegisterScheduledSnippetsOnStartup(params.AppCtx)
 	}
 
 	// Environment health: one job per enabled environment (manager only). The Jobs
