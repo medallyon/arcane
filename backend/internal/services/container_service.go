@@ -1498,8 +1498,10 @@ func (s *ContainerService) calculateContainerStatusCounts(items []containertypes
 	return counts
 }
 
-// CreateExec creates an exec instance in the container
-func (s *ContainerService) CreateExec(ctx context.Context, containerID string, cmd []string) (string, error) {
+// CreateExec creates an exec instance in the container. env is applied as
+// the exec process environment (e.g. TERM for the interactive terminal); nil
+// or empty is fine when the caller has nothing to set.
+func (s *ContainerService) CreateExec(ctx context.Context, containerID string, cmd, env []string) (string, error) {
 	dockerClient, err := s.dockerService.GetClient(ctx)
 	if err != nil {
 		return "", errors.WrapIf(err, "failed to connect to Docker")
@@ -1511,6 +1513,7 @@ func (s *ContainerService) CreateExec(ctx context.Context, containerID string, c
 		AttachStderr: true,
 		TTY:          true,
 		Cmd:          cmd,
+		Env:          env,
 	}
 
 	execResp, err := dockerClient.ExecCreate(ctx, containerID, execConfig)
@@ -1519,6 +1522,20 @@ func (s *ContainerService) CreateExec(ctx context.Context, containerID string, c
 	}
 
 	return execResp.ID, nil
+}
+
+// ResizeExec resizes the TTY of a running exec session so full-screen
+// terminal apps (top, vim, less) render correctly after a client-side resize.
+func (s *ContainerService) ResizeExec(ctx context.Context, execID string, cols, rows uint) error {
+	dockerClient, err := s.dockerService.GetClient(ctx)
+	if err != nil {
+		return errors.WrapIf(err, "failed to connect to Docker")
+	}
+
+	if _, err := dockerClient.ExecResize(ctx, execID, client.ExecResizeOptions{Height: rows, Width: cols}); err != nil {
+		return errors.WrapIf(err, "failed to resize exec")
+	}
+	return nil
 }
 
 // ExecSession manages the lifecycle of a Docker exec session.

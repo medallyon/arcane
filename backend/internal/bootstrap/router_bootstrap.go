@@ -42,6 +42,7 @@ var loggerSkipPatterns = []string{
 	"GET /api/environments/*/ws/containers/*/terminal",
 	"GET /api/environments/*/ws/projects/*/logs",
 	"GET /api/environments/*/ws/system/stats",
+	"GET /api/environments/*/ws/system/terminal",
 	// Long-lived aggregate streams. The access log only fires when the stream
 	// ends, so it reports the full connection lifetime as request latency —
 	// which reads as a multi-minute hung request. The handlers log their own
@@ -117,6 +118,15 @@ func createAuthValidatorInternal(deps api.HandlerDeps) middleware.AuthValidator 
 		}
 		return ps
 	}
+	// setActorContext records the authenticated human on c so
+	// EnvironmentMiddleware can forward their identity to the remote agent
+	// for audit attribution, mirroring what the local auth middleware sets
+	// for non-proxied requests.
+	setActorContext := func(c *echo.Context, user *models.User) {
+		c.Set("userID", user.ID)
+		c.Set("currentUser", user)
+	}
+
 	return func(ctx context.Context, c *echo.Context) (*authz.PermissionSet, *models.User, bool) {
 		req := c.Request()
 		// Check for API key authentication
@@ -127,6 +137,7 @@ func createAuthValidatorInternal(deps api.HandlerDeps) middleware.AuthValidator 
 				if key != nil && key.Kind != models.ApiKeyKindPersonal {
 					return resolveKey(ctx, key.ID), user, true
 				}
+				setActorContext(c, user)
 				return resolveUser(ctx, user), user, true
 			}
 			// Environment bootstrap key (user_id = NULL): used by the proxy when forwarding
@@ -153,6 +164,7 @@ func createAuthValidatorInternal(deps api.HandlerDeps) middleware.AuthValidator 
 		if err != nil || user == nil {
 			return nil, nil, false
 		}
+		setActorContext(c, user)
 		return resolveUser(ctx, user), user, true
 	}
 }
@@ -269,7 +281,7 @@ func newRouter(p RouterParams) (*echo.Echo, *edge.TunnelServer) {
 	}
 
 	// Remaining echo handlers (WebSocket/streaming)
-	ws.NewWebSocketHandler(apiGroup, deps.Project, deps.Container, deps.Swarm, deps.System, deps.Diagnostics, authMiddleware, cfg)
+	ws.NewWebSocketHandler(apiGroup, deps.Project, deps.Container, deps.Swarm, deps.System, deps.Diagnostics, deps.HostShell, authMiddleware, cfg)
 
 	// Register edge tunnel endpoint for manager to accept agent connections
 	// This is only registered when NOT in agent mode (i.e., running as manager)
